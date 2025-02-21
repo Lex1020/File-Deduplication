@@ -1,28 +1,33 @@
 #!/bin/bash
-# This script takes a directory as an argument and deletes duplicate files based on md5 checksum
-# Usage: bash md5_delete.sh /path/to/directory
+set -euo pipefail
 
-declare -A arr
-# Check if the argument is a valid directory
-if [ -d "$1" ]; then
-  # Find all the files in the directory and its subdirectories
-  find "$1" -type f -print0 | while read -d $'\0' file
-  do
-    # Calculate the md5 checksum of each file
-    md5=$(md5sum "$file" | cut -d ' ' -f 1)
-    # Check if the checksum already exists in the associative array
-    if [ -n "${arr[16#$md5]}" ]; then
-      # If yes, delete the file as it is a duplicate
-      echo "Deleting $file"
-      rm "$file"
-    else
-      # If not, store the checksum in the array
-      arr[16#$md5]=1
-    fi
-  done
-else
-  # If the argument is not a valid directory, print an error message
-  echo "Invalid directory: $1"
+# Usage check: Ensure exactly one argument (directory) is provided.
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 /path/to/directory"
   exit 1
 fi
 
+# Validate that the argument is a directory.
+if [ ! -d "$1" ]; then
+  echo "Error: '$1' is not a valid directory."
+  exit 1
+fi
+
+declare -A checksums
+
+# Use process substitution instead of a pipe so that the associative array is not lost in a subshell.
+while IFS= read -r -d '' file; do
+  # Make sure it's a regular file (could be redundant with find's -type f).
+  if [ -f "$file" ]; then
+    # Calculate the MD5 checksum using awk for clarity.
+    file_checksum=$(md5sum "$file" | awk '{print $1}')
+    # If the checksum is already in the array, delete the duplicate.
+    if [[ -n "${checksums[$file_checksum]:-}" ]]; then
+      echo "Deleting duplicate file: $file"
+      rm "$file"
+    else
+      # Store the checksum in the associative array.
+      checksums["$file_checksum"]=1
+    fi
+  fi
+done < <(find "$1" -type f -print0)
